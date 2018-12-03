@@ -10,7 +10,7 @@
 # - certificates and key are mounted into containers using volumes
 # - minio artifacts are stored in a named volume `mender-artifacts`; volume
 #   needs to be created manually using `docker volume create mender-artifacts`
-# - paths need to be adjusted, ie, replace /template/ with production directory
+# - paths need to be adjusted, ie, replace /production/ with production directory
 #   (see list of compose bugs)
 
 # related compose bugs:
@@ -24,7 +24,7 @@ services:
     mender-useradm:
         command: server --automigrate
         volumes:
-            - ./template/keys-generated/keys/useradm/private.key:/etc/useradm/rsa/private.pem:ro
+            - ./production/keys-generated/keys/useradm/private.key:/etc/useradm/rsa/private.pem:ro
         logging:
             options:
                 max-file: "10"
@@ -33,13 +33,22 @@ services:
     mender-device-auth:
         command: server --automigrate
         volumes:
-            - ./template/keys-generated/keys/deviceauth/private.key:/etc/deviceauth/rsa/private.pem:ro
+            - ./production/keys-generated/keys/deviceauth/private.key:/etc/deviceauth/rsa/private.pem:ro
+        logging:
+            options:
+                max-file: "10"
+                max-size: "50m"
+        environment:
+            DEVICEAUTH_MAX_DEVICES_LIMIT_DEFAULT: 5000
+
+    mender-inventory:
+        command: server --automigrate
         logging:
             options:
                 max-file: "10"
                 max-size: "50m"
 
-    mender-inventory:
+    mender-device-adm:
         command: server --automigrate
         logging:
             options:
@@ -53,14 +62,14 @@ services:
         networks:
             - mender
         volumes:
-            - ./template/keys-generated/certs/api-gateway/cert.crt:/var/www/mendersoftware/cert/cert.crt:ro
-            - ./template/keys-generated/certs/api-gateway/private.key:/var/www/mendersoftware/cert/private.key:ro
+            - /etc/letsencrypt/live/mender.bflow.app/fullchain.pem:/var/www/mendersoftware/cert/cert.crt:ro
+            - /etc/letsencrypt/live/mender.bflow.app/privkey.pem:/var/www/mendersoftware/cert/private.key:ro
         logging:
             options:
                 max-file: "10"
                 max-size: "50m"
         environment:
-            ALLOWED_HOSTS: my-gateway-dns-name
+            ALLOWED_HOSTS: mender.bflow.app
 
     storage-proxy:
         ports:
@@ -73,7 +82,7 @@ services:
                     # available on, for instance if devices will access storage
                     # using https://s3.acme.org:9000, then set this to
                     # s3.acme.org
-                    - set-my-alias-here.com
+                    - s3.mender.bflow.app
         environment:
 
             # use nginx syntax for rate limiting, see
@@ -84,25 +93,25 @@ services:
             DOWNLOAD_SPEED: 1m
             MAX_CONNECTIONS: 100
         volumes:
-            - ./template/keys-generated/certs/storage-proxy/cert.crt:/var/www/storage-proxy/cert/cert.crt:ro
-            - ./template/keys-generated/certs/storage-proxy/private.key:/var/www/storage-proxy/cert/private.key:ro
+            - /etc/letsencrypt/live/mender.bflow.app/fullchain.pem:/var/www/storage-proxy/cert/cert.crt:ro
+            - /etc/letsencrypt/live/mender.bflow.app/privkey.pem:/var/www/storage-proxy/cert/private.key:ro
 
     mender-deployments:
         command: server --automigrate
         volumes:
-            - ./template/keys-generated/certs/storage-proxy/cert.crt:/etc/ssl/certs/storage-proxy.crt:ro
+            - /etc/letsencrypt/live/mender.bflow.app/fullchain.pem:/etc/ssl/certs/storage-proxy.crt:ro
         environment:
             STORAGE_BACKEND_CERT: /etc/ssl/certs/storage-proxy.crt
             # access key, the same value as MINIO_ACCESS_KEY
-            DEPLOYMENTS_AWS_AUTH_KEY:
+            DEPLOYMENTS_AWS_AUTH_KEY: mender-deployments
             # secret, the same valie as MINIO_SECRET_KEY
-            DEPLOYMENTS_AWS_AUTH_SECRET:
+            DEPLOYMENTS_AWS_AUTH_SECRET: ieThubug0wae3Aet
 
             # deployments service uses signed URLs, hence it needs to access
             # storage-proxy using exactly the same name as devices will; if
             # devices will access storage using https://s3.acme.org:9000, then
             # set this to https://s3.acme.org:9000
-            DEPLOYMENTS_AWS_URI: https://set-my-alias-here.com
+            DEPLOYMENTS_AWS_URI: https://s3.mender.bflow.app:9000
         logging:
             options:
                 max-file: "10"
@@ -111,9 +120,9 @@ services:
     minio:
         environment:
             # access key
-            MINIO_ACCESS_KEY:
+            MINIO_ACCESS_KEY: mender-deployments
             # secret
-            MINIO_SECRET_KEY:
+            MINIO_SECRET_KEY: ieThubug0wae3Aet
         volumes:
             # mounts a docker volume named `mender-artifacts` as /export directory
             - mender-artifacts:/export:rw
